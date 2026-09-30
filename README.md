@@ -71,6 +71,18 @@ docker compose exec app php artisan about
 docker compose exec app php artisan db:show --database=pgsql
 ```
 
+Тесты ограничений предметной модели необходимо запускать на PostgreSQL. Для изоляции используется отдельная временная база; основная локальная база и её данные не изменяются:
+
+```bash
+docker compose up -d postgres
+docker compose exec postgres createdb -U tasty_autumn tasty_autumn_model_test
+docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_model_test app php artisan migrate:fresh --force
+docker compose run --rm --no-deps -e DB_CONNECTION=pgsql -e DB_DATABASE=tasty_autumn_model_test app php artisan test
+docker compose exec postgres dropdb -U tasty_autumn --force tasty_autumn_model_test
+```
+
+Если `DB_USERNAME` изменён относительно `.env.example`, замените `tasty_autumn` в командах `createdb` и `dropdb` на настроенное имя пользователя.
+
 ## Остановка
 
 ```bash
