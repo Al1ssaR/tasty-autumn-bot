@@ -15,15 +15,11 @@ FROM php:8.4.25-cli-bookworm AS application
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libonig-dev \
+        libicu-dev \
         libpq-dev \
-        libxml2-dev \
     && docker-php-ext-install -j"$(nproc)" \
-        dom \
-        mbstring \
+        intl \
         pdo_pgsql \
-        xml \
-        xmlwriter \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html
