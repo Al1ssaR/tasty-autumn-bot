@@ -1,6 +1,6 @@
 # «Вкусная осень» — AI Support MVP
 
-Минимальный каркас системы поддержки участников промоакции M-Social. На текущем этапе проект содержит Laravel 13, PostgreSQL 17 и Docker Compose. Telegram, LLM, операторская панель и бизнес-логика обращений будут добавлены на следующих этапах.
+MVP системы поддержки участников промоакции M-Social. На текущем этапе проект содержит Laravel 13, PostgreSQL 17, Docker Compose и Telegram-контур на long polling. Бот принимает личные текстовые сообщения, сохраняет их для последующей классификации и присоединяет новые сообщения к уже открытому обращению. LLM, создание новых обращений по результату классификации и операторская панель будут добавлены на следующих этапах.
 
 ## Требования
 
@@ -33,13 +33,21 @@ PHP и Composer на хосте не требуются.
 
    Ключ записывается только в `.env`. Этот файл исключён из Git и Docker-образа.
 
-4. Запустите приложение и PostgreSQL:
+4. Создайте бота через BotFather и укажите полученный token только в локальном `.env`:
+
+   ```dotenv
+   TELEGRAM_BOT_TOKEN=
+   ```
+
+   Значение token не должно попадать в Git, README, логи или команды. `.env.example` содержит только пустой placeholder.
+
+5. Запустите приложение, Telegram worker и PostgreSQL:
 
    ```bash
    docker compose up --build
    ```
 
-PostgreSQL проверяется через healthcheck. Laravel запускает стандартные framework-миграции только после готовности базы данных.
+PostgreSQL проверяется через healthcheck. Laravel запускает миграции только после готовности базы данных. Compose-сервис `bot` ждёт готовности web-приложения после миграций и затем запускает `telegram:poll`.
 
 Последующие запуски не требуют пересборки:
 
@@ -51,6 +59,26 @@ docker compose up
 
 - приложение: <http://localhost:8000>;
 - health endpoint Laravel: <http://localhost:8000/up>.
+
+## Telegram worker
+
+Бот использует long polling и обрабатывает только обычные текстовые сообщения в private chat. Фото, документы, voice, video и sticker не скачиваются и получают статическое предложение отправить вопрос текстом. Другие типы updates игнорируются.
+
+При обычном запуске `docker compose up` polling выполняет сервис `bot`. Для одного token должен работать только один polling worker.
+
+Безопасно проверить credentials через `getMe`, не выводя token:
+
+```bash
+docker compose run --rm --no-deps bot php artisan telegram:check
+```
+
+Выполнить один batch `getUpdates` и завершить процесс:
+
+```bash
+docker compose run --rm bot php artisan telegram:poll --once
+```
+
+HTTP timeout должен быть больше `TELEGRAM_LONG_POLL_TIMEOUT`; worker проверяет это перед запуском. Offset хранится только в памяти процесса, а повторно доставленные updates обезвреживаются unique constraint по `telegram_update_id`.
 
 ## База данных
 
