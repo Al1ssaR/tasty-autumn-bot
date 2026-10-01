@@ -2,11 +2,13 @@
 
 namespace App\Telegram;
 
+use App\Llm\Contracts\IncomingMessageClassifier;
 use App\Telegram\Contracts\IncomingMessageIntake;
 use App\Telegram\Contracts\TelegramClient;
 use App\Telegram\Data\TelegramPollingBatchResult;
 use App\Telegram\Data\TelegramTransportError;
 use App\Telegram\Data\TelegramUpdate;
+use App\Telegram\Enums\IncomingMessageIntakeStatus;
 use App\Telegram\Enums\TelegramUpdateDisposition;
 use App\Telegram\Exceptions\TelegramTransportException;
 
@@ -18,6 +20,7 @@ final class TelegramPollingWorker
         private readonly TelegramClient $client,
         private readonly TelegramUpdateParser $parser,
         private readonly IncomingMessageIntake $intake,
+        private readonly IncomingMessageClassifier $classifier,
     ) {}
 
     public function pollOnce(?int $offset = null): TelegramPollingBatchResult
@@ -45,7 +48,12 @@ final class TelegramPollingWorker
             $parsed = $this->parser->parse($update);
 
             if ($parsed->disposition === TelegramUpdateDisposition::IncomingText) {
-                $statuses[] = $this->intake->handle($parsed->incomingMessage)->status;
+                $intakeResult = $this->intake->handle($parsed->incomingMessage);
+                $statuses[] = $intakeResult->status;
+
+                if ($intakeResult->status === IncomingMessageIntakeStatus::ReadyForClassification) {
+                    $this->classifier->classify($intakeResult->message);
+                }
             } elseif ($parsed->disposition === TelegramUpdateDisposition::UnsupportedPrivateMessage) {
                 $unsupported++;
                 $result = $this->client->sendMessage(

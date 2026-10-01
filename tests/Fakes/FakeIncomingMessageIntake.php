@@ -16,15 +16,20 @@ final class FakeIncomingMessageIntake implements IncomingMessageIntake
     /** @var list<int> */
     public array $duplicateUpdateIds = [];
 
+    /** @var list<int> */
+    public array $openTicketUpdateIds = [];
+
     public function handle(IncomingTelegramMessage $incoming): IncomingMessageIntakeResult
     {
         $this->received[] = $incoming;
         $message = new Message;
         $message->id = $incoming->updateId;
 
-        $status = in_array($incoming->updateId, $this->duplicateUpdateIds, true)
-            ? IncomingMessageIntakeStatus::DuplicateUpdate
-            : IncomingMessageIntakeStatus::ReadyForClassification;
+        $status = match (true) {
+            in_array($incoming->updateId, $this->duplicateUpdateIds, true) => IncomingMessageIntakeStatus::DuplicateUpdate,
+            in_array($incoming->updateId, $this->openTicketUpdateIds, true) => IncomingMessageIntakeStatus::AddedToOpenTicket,
+            default => IncomingMessageIntakeStatus::ReadyForClassification,
+        };
 
         return new IncomingMessageIntakeResult($status, $message);
     }

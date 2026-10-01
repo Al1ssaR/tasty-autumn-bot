@@ -1,0 +1,71 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://vkusnaya-osen.example/schemas/bot-decision-v1.json",
+    "title": "BotDecisionV1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "action",
+        "reason",
+        "answer",
+        "rule_references"
+    ],
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": ["answer", "escalate"]
+        },
+        "reason": {
+            "type": "string",
+            "enum": [
+                "grounded_in_rules",
+                "participant_data_required",
+                "missing_rule",
+                "insufficient_context",
+                "unsafe_request"
+            ]
+        },
+        "answer": {
+            "type": "string",
+            "maxLength": 3000
+        },
+        "rule_references": {
+            "type": "array",
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*\\.[1-9][0-9]*$",
+                "maxLength": 16
+            }
+        }
+    },
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "action": {"const": "answer"}
+                }
+            },
+            "then": {
+                "properties": {
+                    "reason": {"const": "grounded_in_rules"},
+                    "answer": {"pattern": "\\S"},
+                    "rule_references": {"minItems": 1}
+                }
+            },
+            "else": {
+                "properties": {
+                    "reason": {
+                        "enum": [
+                            "participant_data_required",
+                            "missing_rule",
+                            "insufficient_context",
+                            "unsafe_request"
+                        ]
+                    }
+                }
+            }
+        }
+    ]
+}

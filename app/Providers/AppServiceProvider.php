@@ -2,6 +2,13 @@
 
 namespace App\Providers;
 
+use App\Llm\Contracts\IncomingMessageClassifier;
+use App\Llm\Contracts\LlmDecisionClient;
+use App\Llm\Data\LlmClientIdentity;
+use App\Llm\MessageClassificationService;
+use App\Llm\UnavailableLlmDecisionClient;
+use App\Support\Contracts\Clock;
+use App\Support\SystemClock;
 use App\Telegram\Contracts\IncomingMessageIntake;
 use App\Telegram\Contracts\TelegramClient;
 use App\Telegram\PostgresIncomingMessageIntake;
@@ -17,6 +24,14 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(TelegramClient::class, TelegramHttpClient::class);
         $this->app->bind(IncomingMessageIntake::class, PostgresIncomingMessageIntake::class);
+        $this->app->bind(Clock::class, SystemClock::class);
+        $this->app->bind(IncomingMessageClassifier::class, MessageClassificationService::class);
+        $this->app->bind(LlmDecisionClient::class, function (): LlmDecisionClient {
+            return new UnavailableLlmDecisionClient(new LlmClientIdentity(
+                $this->nullableConfigString('llm.provider'),
+                $this->nullableConfigString('llm.model'),
+            ));
+        });
     }
 
     /**
@@ -25,5 +40,12 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         //
+    }
+
+    private function nullableConfigString(string $key): ?string
+    {
+        $value = config($key);
+
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 }

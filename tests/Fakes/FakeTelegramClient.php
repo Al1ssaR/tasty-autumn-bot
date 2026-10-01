@@ -25,6 +25,9 @@ final class FakeTelegramClient implements TelegramClient
 
     public TelegramBotProfile $botProfile;
 
+    /** @var null|callable(int, string): void */
+    public $onSend = null;
+
     public function __construct()
     {
         $this->sendResult = TelegramSendResult::success(1);
@@ -45,6 +48,10 @@ final class FakeTelegramClient implements TelegramClient
     public function sendMessage(int $chatId, string $text): TelegramSendResult
     {
         $this->sentMessages[] = ['chat_id' => $chatId, 'text' => $text];
+
+        if (is_callable($this->onSend)) {
+            ($this->onSend)($chatId, $text);
+        }
 
         return $this->sendResult;
     }
