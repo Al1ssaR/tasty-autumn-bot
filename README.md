@@ -2,6 +2,14 @@
 
 MVP системы поддержки участников промоакции M-Social. Проект содержит Laravel 13, PostgreSQL 17, Docker Compose, Telegram-контур на long polling, provider-neutral LLM-слой с concrete Groq adapter и server-rendered операторскую панель. Новое личное текстовое сообщение проходит PII redaction, классификацию по полному документу правил, строгую проверку structured result и затем получает ответ либо создаёт обращение оператору. Оператор видит очередь и историю, отвечает участнику через существующий Telegram transport, закрывает обращение и просматривает all-time статистику.
 
+## Архитектура
+
+Основной поток MVP:
+
+`Telegram → long polling intake → PII redaction → LLM classification → answer или escalation → PostgreSQL → operator panel → Telegram reply`.
+
+Приложение является одним Laravel-монолитом с отдельными Compose-процессами web-приложения и Telegram worker. LLM не имеет доступа к БД, Telegram API или административным операциям: оно возвращает только структурированное предложение, которое валидирует application layer. Полное описание границ и отказоустойчивости находится в [`docs/architecture.md`](docs/architecture.md), а фактическая PostgreSQL-схема — в [`docs/database-schema.md`](docs/database-schema.md).
+
 ## Требования
 
 - Docker с поддержкой Docker Compose;
@@ -147,7 +155,7 @@ docker compose run --rm --no-deps app php artisan bot:evaluate
 Артефакты версионированы и не перезаписывают предыдущий прогон:
 
 - `bot-v1`: `docs/evaluation-results.md` и `evaluation/results.json`;
-- `bot-v2`: `docs/evaluation-results-v2.md` и `evaluation/results-v2.json`.
+- текущий итоговый `bot-v2`: [`docs/evaluation-results-v2.md`](docs/evaluation-results-v2.md) и `evaluation/results-v2.json`.
 
 История одной контролируемой итерации и наблюдаемые изменения поведения описаны в `docs/prompt-iterations.md`.
 
@@ -165,17 +173,42 @@ docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_llm_test app php a
 
 Все timestamps приложения и базы хранятся в UTC. В интерфейсе оператора время показывается в `Europe/Moscow`; LLM также получает московское время явно.
 
+## Допущения и границы MVP
+
+Все решения, которых не было в исходном ТЗ, собраны в [`docs/assumptions.md`](docs/assumptions.md). Ключевые: long polling вместо webhook, только текстовые private messages, максимум одно открытое обращение участника, общая очередь без assignment, all-time статистика и отсутствие интеграции с данными сайта акции.
+
 ## Известные ограничения
 
 - Нет интеграции с личным кабинетом акции: оператор проверяет конкретный чек, выигрыш или доставку во внешнем процессе.
 - Одновременно у участника может быть только одно открытое обращение; новый вопрос присоединяется к нему до закрытия.
+- Telegram работает через long polling; webhook и горизонтальное масштабирование worker не реализованы.
 - Telegram-доставка синхронная, без автоматического retry и без отдельной истории попыток. Failed-ответ виден оператору, но кнопка ручной повторной отправки не входит в текущий MVP.
-- Нет assignment, SLA, фильтров статистики по периоду, ролей, MFA/SSO и административного UI для пользователей.
+- Все операторы используют одну общую очередь. Нет assignment, SLA, фильтров статистики по периоду, ролей, MFA/SSO и административного UI управления операторами.
 - Support history не удаляется автоматически: production retention policy не определена.
 - Поддерживаются только текстовые private messages; вложения не сохраняются и не анализируются.
+- Использованный Groq free-tier не гарантирует стабильную доступность, latency и отсутствие rate limits.
 - `bot-v2` улучшил evaluation до 17/25 строгих содержательных PASS, но оставшиеся ошибки и provider failures описаны в `docs/evaluation-results-v2.md`.
 
-Перед production необходимы согласованные retention/access policies, SSO или MFA, аудит действий операторов, rate limiting входа, стратегия retry/outbox для Telegram, мониторинг внешних интеграций, HTTPS и тесты под реальной нагрузкой. Также требуется устранить зафиксированные ошибки поведения `bot-v2`; текущий этап намеренно не меняет prompt и не создаёт `bot-v3`.
+## Что улучшить для production
+
+- перейти на webhook за HTTPS/reverse proxy либо спроектировать управляемое масштабирование polling;
+- вынести Telegram delivery в надёжную очередь/outbox с ограниченными retry и backoff;
+- добавить observability, безопасный аудит действий и мониторинг внешних интеграций;
+- хранить secrets в менеджере секретов, усилить session/CSRF-политику под выбранную среду и добавить rate limiting входа;
+- согласовать retention/access policy, резервное копирование и восстановление PostgreSQL;
+- добавить SSO/MFA и управление операторами;
+- выбрать LLM-провайдера с подходящим SLA и продолжить prompt/model evaluation;
+- устранить зафиксированные дефекты поведения `bot-v2` до production-запуска.
+
+Эти улучшения не заявлены как реализованные и не требуются для локального MVP.
+
+## AI-assisted разработка
+
+Проект разрабатывался через Codex. Правила работы агента находятся в [`AGENTS.md`](AGENTS.md), а сохранённые реальные постановки этапов — в [`docs/agent-prompts/`](docs/agent-prompts/README.md). Это development prompts; runtime prompt бота хранится отдельно в [`prompts/bot/`](prompts/bot/README.md).
+
+Поддерживаемого экспорта истории сессий из текущего интерфейса Codex в этой среде нет, поэтому fake transcripts не создавались. В [`docs/agent-sessions/README.md`](docs/agent-sessions/README.md) описано, какие 2–3 настоящих экспорта пользователь должен добавить перед передачей репозитория, если этот deliverable проверяется отдельно. `CLAUDE.md` отсутствует намеренно: Claude Code не использовался.
+
+Сводное соответствие исходному заданию находится в [`docs/submission-checklist.md`](docs/submission-checklist.md).
 
 ## Проверки
 
