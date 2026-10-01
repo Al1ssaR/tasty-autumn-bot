@@ -5,10 +5,15 @@ namespace Tests\Feature\Telegram;
 use App\Models\BotDecision;
 use App\Models\SupportTicket;
 use App\Telegram\Data\IncomingTelegramMessage;
+use App\Telegram\Data\TelegramUpdate;
 use App\Telegram\Enums\IncomingMessageIntakeStatus;
 use App\Telegram\PostgresIncomingMessageIntake;
+use App\Telegram\TelegramPollingWorker;
+use App\Telegram\TelegramUpdateParser;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Tests\Fakes\FakeIncomingMessageClassifier;
+use Tests\Fakes\FakeTelegramClient;
 use Tests\TestCase;
 
 class PostgresIncomingMessageIntakeTest extends TestCase
@@ -112,6 +117,87 @@ class PostgresIncomingMessageIntakeTest extends TestCase
         $this->assertDatabaseCount('support_tickets', 1);
         $this->assertDatabaseCount('bot_decisions', 1);
         $this->assertTrue($decision->is(BotDecision::query()->firstOrFail()));
+    }
+
+    public function test_message_after_ticket_is_closed_is_ready_for_fresh_classification(): void
+    {
+        $chatId = $this->nextIdentifier();
+        $trigger = $this->intake()->handle($this->incoming(chatId: $chatId));
+        BotDecision::query()->create([
+            'incoming_message_id' => $trigger->message->id,
+            'action' => 'escalate',
+            'business_reason' => 'participant_data_required',
+            'technical_outcome' => 'valid',
+            'rule_references' => [],
+            'provider' => 'test-provider',
+            'model' => 'test-model',
+            'prompt_version' => 'bot-v2',
+            'rules_hash' => str_repeat('a', 64),
+            'decided_at' => now(),
+        ]);
+        $ticket = SupportTicket::query()->create([
+            'telegram_participant_id' => $trigger->message->telegram_participant_id,
+            'trigger_message_id' => $trigger->message->id,
+            'status' => 'open',
+        ]);
+        $ticket->update(['status' => 'closed', 'closed_at' => now()]);
+
+        $result = $this->intake()->handle($this->incoming(
+            chatId: $chatId,
+            text: 'Новый вопрос после закрытия',
+        ));
+
+        $this->assertSame(IncomingMessageIntakeStatus::ReadyForClassification, $result->status);
+        $this->assertNull($result->message->support_ticket_id);
+        $this->assertDatabaseCount('support_tickets', 1);
+        $this->assertDatabaseCount('bot_decisions', 1);
+    }
+
+    public function test_polling_classifies_new_message_after_previous_ticket_is_closed(): void
+    {
+        $chatId = $this->nextIdentifier();
+        $trigger = $this->intake()->handle($this->incoming(chatId: $chatId));
+        BotDecision::query()->create([
+            'incoming_message_id' => $trigger->message->id,
+            'action' => 'escalate',
+            'business_reason' => 'participant_data_required',
+            'technical_outcome' => 'valid',
+            'rule_references' => [],
+            'provider' => 'test-provider',
+            'model' => 'test-model',
+            'prompt_version' => 'bot-v2',
+            'rules_hash' => str_repeat('a', 64),
+            'decided_at' => now(),
+        ]);
+        $ticket = SupportTicket::query()->create([
+            'telegram_participant_id' => $trigger->message->telegram_participant_id,
+            'trigger_message_id' => $trigger->message->id,
+            'status' => 'open',
+        ]);
+        $ticket->update(['status' => 'closed', 'closed_at' => now()]);
+        $updateId = $this->nextIdentifier();
+        $telegram = new FakeTelegramClient;
+        $telegram->updateBatches = [[TelegramUpdate::fromPayload([
+            'update_id' => $updateId,
+            'message' => [
+                'message_id' => $this->nextIdentifier(),
+                'chat' => ['id' => $chatId, 'type' => 'private'],
+                'text' => 'Новый вопрос после закрытия',
+            ],
+        ])]];
+        $classifier = new FakeIncomingMessageClassifier;
+        $worker = new TelegramPollingWorker(
+            $telegram,
+            new TelegramUpdateParser,
+            $this->intake(),
+            $classifier,
+        );
+
+        $worker->pollOnce();
+
+        $this->assertCount(1, $classifier->received);
+        $this->assertSame($updateId, $classifier->received[0]->telegram_update_id);
+        $this->assertNull($classifier->received[0]->support_ticket_id);
     }
 
     private function intake(): PostgresIncomingMessageIntake
