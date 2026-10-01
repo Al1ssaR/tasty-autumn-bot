@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Llm\Contracts\IncomingMessageClassifier;
 use App\Llm\Contracts\LlmDecisionClient;
 use App\Llm\Data\LlmClientIdentity;
+use App\Llm\GroqLlmDecisionClient;
 use App\Llm\MessageClassificationService;
 use App\Llm\UnavailableLlmDecisionClient;
 use App\Support\Contracts\Clock;
@@ -26,7 +27,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(IncomingMessageIntake::class, PostgresIncomingMessageIntake::class);
         $this->app->bind(Clock::class, SystemClock::class);
         $this->app->bind(IncomingMessageClassifier::class, MessageClassificationService::class);
-        $this->app->bind(LlmDecisionClient::class, function (): LlmDecisionClient {
+        $this->app->bind(LlmDecisionClient::class, function ($app): LlmDecisionClient {
+            if ($this->nullableConfigString('llm.provider') === 'groq') {
+                return $app->make(GroqLlmDecisionClient::class);
+            }
+
             return new UnavailableLlmDecisionClient(new LlmClientIdentity(
                 $this->nullableConfigString('llm.provider'),
                 $this->nullableConfigString('llm.model'),

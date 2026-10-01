@@ -1,6 +1,6 @@
 # «Вкусная осень» — AI Support MVP
 
-MVP системы поддержки участников промоакции M-Social. Проект содержит Laravel 13, PostgreSQL 17, Docker Compose, Telegram-контур на long polling и provider-neutral LLM-слой. Новое личное текстовое сообщение проходит PII redaction, классификацию по полному документу правил, строгую проверку structured result и затем получает ответ либо создаёт обращение оператору. Операторская панель и конкретный LLM provider будут добавлены на следующих этапах.
+MVP системы поддержки участников промоакции M-Social. Проект содержит Laravel 13, PostgreSQL 17, Docker Compose, Telegram-контур на long polling и provider-neutral LLM-слой с concrete Groq adapter. Новое личное текстовое сообщение проходит PII redaction, классификацию по полному документу правил, строгую проверку structured result и затем получает ответ либо создаёт обращение оператору. Операторская панель будет добавлена на следующем этапе.
 
 ## Требования
 
@@ -41,7 +41,20 @@ PHP и Composer на хосте не требуются.
 
    Значение token не должно попадать в Git, README, логи или команды. `.env.example` содержит только пустой placeholder.
 
-5. Запустите приложение, Telegram worker и PostgreSQL:
+5. Создайте API key в Groq Console и укажите его только в локальном `.env`:
+
+   ```dotenv
+   LLM_PROVIDER=groq
+   LLM_MODEL=openai/gpt-oss-120b
+   LLM_API_KEY=
+   LLM_BASE_URL=https://api.groq.com/openai/v1
+   LLM_TIMEOUT=30
+   LLM_REASONING_EFFORT=medium
+   ```
+
+   На момент разработки для проверки использовался доступный Groq free-tier. Его доступность и лимиты могут измениться; проект не обещает постоянную бесплатность.
+
+6. Запустите приложение, Telegram worker и PostgreSQL:
 
    ```bash
    docker compose up --build
@@ -86,9 +99,37 @@ Runtime использует prompt версии `bot-v1` из `prompts/bot/syst
 
 Перед LLM маскируются распространённые российские номера телефонов и вероятные номера банковских карт. Оригинальный текст остаётся в истории PostgreSQL, а redacted-копия не сохраняется. Это ограниченная защита для явно распознаваемых форматов, а не универсальный DLP.
 
-Конкретный provider на текущем этапе не подключён. Production-binding не генерирует фиктивные ответы: отсутствие provider приводит к технической fail-safe эскалации и созданию обращения. Fake client используется только автоматическими тестами. Настройки `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` и `LLM_TIMEOUT` зарезервированы для следующего этапа интеграции.
+При `LLM_PROVIDER=groq` приложение использует Laravel HTTP Client и endpoint `{LLM_BASE_URL}/chat/completions`; SDK и сторонняя LLM abstraction library не устанавливаются. Model всегда берётся из `LLM_MODEL`, fallback на другую модель или provider отсутствует. Runtime-запрос использует `reasoning_effort=medium`, не задаёт `temperature` и `top_p`, не включает tools, raw reasoning или streaming. Контракт передаётся как `response_format=json_schema` с `strict=true`.
+
+Для неизвестного provider production-binding не подменяет конфигурацию Groq или Fake client: применяется существующий безопасный unavailable-client и техническая fail-safe эскалация. HTTP/provider error, включая 401/403, 429 и 5xx, становится `api_failure`; timeout — `timeout`; отсутствующий или некорректный assistant content — `malformed_response`. Публичные ошибки не содержат API key, Authorization header, provider body или полный request URL.
 
 При валидном `answer` приложение сохраняет decision и исходящее сообщение, затем вне database transaction вызывает Telegram. При `escalate`, malformed result, timeout или API/application failure создаётся обращение и отправляется предсказуемое application-owned уведомление. Сгенерированный моделью ответ для `unsafe_request` не используется.
+
+## Groq smoke-test и baseline evaluation
+
+Один безопасный live smoke на исходном обращении №1 выполняется отдельно от PHPUnit и ничего не отправляет в Telegram:
+
+```bash
+docker compose run --rm --no-deps app php artisan bot:evaluate --case=1 --no-report --max-attempts=1
+```
+
+Полный baseline читает тексты непосредственно из `docs/requests.md`, выполняет все 25 cases строго последовательно и использует frozen time `2026-09-30T12:00:00+03:00`. Expected mapping хранится только в `evaluation/expected.php` и не используется production-классификацией:
+
+```bash
+docker compose run --rm --no-deps app php artisan bot:evaluate
+```
+
+При 429 runner учитывает `Retry-After`, ждёт не более 30 секунд за одну попытку и делает максимум три попытки case. Production classification не повторяет внешний вызов бесконечно и сразу использует fail-safe. Human-readable baseline сохраняется в `docs/evaluation-results.md`, повторяющиеся per-case metadata — в `evaluation/results.json`. Raw provider responses и secrets в artifacts не сохраняются; обращение №22 публикуется только с `[CARD_REDACTED]`.
+
+Application-level live smoke использует real Groq, настоящий classification orchestration, rollback и fake Telegram transport. Команда намеренно разрешена только для изолированной базы с суффиксом `_test`:
+
+```bash
+docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_llm_test app php artisan bot:llm-application-smoke
+```
+
+`bot-v1` является неизменяемой baseline-версией. Наблюдаемые ошибки baseline документируются, а возможная итерация prompt выполняется только отдельной версией.
+
+Зафиксированный baseline дал 16 из 25 точных совпадений `action + reason`, 4 технических сбоя и 11 из 25 строгих ручных PASS по содержанию. Подробные результаты и разбор несовпадений находятся в `docs/evaluation-results.md`.
 
 ## База данных
 
