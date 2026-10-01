@@ -95,7 +95,7 @@ HTTP timeout должен быть больше `TELEGRAM_LONG_POLL_TIMEOUT`; wo
 
 ## LLM-слой
 
-Runtime использует prompt версии `bot-v1` из `prompts/bot/system.md` и строгий контракт `prompts/bot/response-schema.json`. Полный `docs/promo-rules.md`, текущее московское время и redacted-копия пользовательского сообщения передаются отдельно. SHA-256 точных bytes правил сохраняется вместе с решением.
+Runtime использует prompt версии `bot-v2` из `prompts/bot/system.md` и строгий контракт `prompts/bot/response-schema.json`. Неизменяемый baseline `bot-v1` сохранён в `prompts/bot/versions/bot-v1.md`, а точная копия текущей версии — в `prompts/bot/versions/bot-v2.md`. Полный `docs/promo-rules.md`, текущее московское время и redacted-копия пользовательского сообщения передаются отдельно. SHA-256 точных bytes правил сохраняется вместе с решением.
 
 Перед LLM маскируются распространённые российские номера телефонов и вероятные номера банковских карт. Оригинальный текст остаётся в истории PostgreSQL, а redacted-копия не сохраняется. Это ограниченная защита для явно распознаваемых форматов, а не универсальный DLP.
 
@@ -105,7 +105,7 @@ Runtime использует prompt версии `bot-v1` из `prompts/bot/syst
 
 При валидном `answer` приложение сохраняет decision и исходящее сообщение, затем вне database transaction вызывает Telegram. При `escalate`, malformed result, timeout или API/application failure создаётся обращение и отправляется предсказуемое application-owned уведомление. Сгенерированный моделью ответ для `unsafe_request` не используется.
 
-## Groq smoke-test и baseline evaluation
+## Groq smoke-test и evaluation
 
 Один безопасный live smoke на исходном обращении №1 выполняется отдельно от PHPUnit и ничего не отправляет в Telegram:
 
@@ -113,13 +113,20 @@ Runtime использует prompt версии `bot-v1` из `prompts/bot/syst
 docker compose run --rm --no-deps app php artisan bot:evaluate --case=1 --no-report --max-attempts=1
 ```
 
-Полный baseline читает тексты непосредственно из `docs/requests.md`, выполняет все 25 cases строго последовательно и использует frozen time `2026-09-30T12:00:00+03:00`. Expected mapping хранится только в `evaluation/expected.php` и не используется production-классификацией:
+Полный evaluation читает тексты непосредственно из `docs/requests.md`, выполняет все 25 cases строго последовательно и использует frozen time `2026-09-30T12:00:00+03:00`. Expected mapping хранится только в `evaluation/expected.php` и не используется production-классификацией:
 
 ```bash
 docker compose run --rm --no-deps app php artisan bot:evaluate
 ```
 
-При 429 runner учитывает `Retry-After`, ждёт не более 30 секунд за одну попытку и делает максимум три попытки case. Production classification не повторяет внешний вызов бесконечно и сразу использует fail-safe. Human-readable baseline сохраняется в `docs/evaluation-results.md`, повторяющиеся per-case metadata — в `evaluation/results.json`. Raw provider responses и secrets в artifacts не сохраняются; обращение №22 публикуется только с `[CARD_REDACTED]`.
+При 429 runner учитывает `Retry-After`, ждёт не более 30 секунд за одну попытку и делает максимум три попытки case. Production classification не повторяет внешний вызов бесконечно и сразу использует fail-safe. Raw provider responses и secrets в artifacts не сохраняются; обращение №22 публикуется только с `[CARD_REDACTED]`.
+
+Артефакты версионированы и не перезаписывают предыдущий прогон:
+
+- `bot-v1`: `docs/evaluation-results.md` и `evaluation/results.json`;
+- `bot-v2`: `docs/evaluation-results-v2.md` и `evaluation/results-v2.json`.
+
+История одной контролируемой итерации и наблюдаемые изменения поведения описаны в `docs/prompt-iterations.md`.
 
 Application-level live smoke использует real Groq, настоящий classification orchestration, rollback и fake Telegram transport. Команда намеренно разрешена только для изолированной базы с суффиксом `_test`:
 
@@ -127,9 +134,7 @@ Application-level live smoke использует real Groq, настоящий 
 docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_llm_test app php artisan bot:llm-application-smoke
 ```
 
-`bot-v1` является неизменяемой baseline-версией. Наблюдаемые ошибки baseline документируются, а возможная итерация prompt выполняется только отдельной версией.
-
-Зафиксированный baseline дал 16 из 25 точных совпадений `action + reason`, 4 технических сбоя и 11 из 25 строгих ручных PASS по содержанию. Подробные результаты и разбор несовпадений находятся в `docs/evaluation-results.md`.
+`bot-v1` является неизменяемой baseline-версией. Зафиксированный baseline дал 16 из 25 точных совпадений `action + reason`, 4 технических сбоя и 11 из 25 строгих ручных PASS по содержанию. Контролируемый прогон `bot-v2` дал соответственно 20 из 25, 2 и 17 из 25. Подробный разбор и ограничения находятся в версионированных отчётах.
 
 ## База данных
 

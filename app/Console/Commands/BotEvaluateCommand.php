@@ -14,12 +14,12 @@ use RuntimeException;
 final class BotEvaluateCommand extends Command
 {
     protected $signature = 'bot:evaluate
-        {--case= : Run one case without changing the baseline report}
+        {--case= : Run one case without changing tracked evaluation reports}
         {--no-report : Do not write tracked report artifacts}
-        {--render-existing : Rebuild reports from the saved baseline without provider calls}
+        {--render-existing : Rebuild current-version reports without provider calls}
         {--max-attempts=3 : Maximum attempts for a rate-limited case}';
 
-    protected $description = 'Evaluate bot-v1 against the source requests using the configured LLM';
+    protected $description = 'Evaluate the current bot prompt against the source requests';
 
     public function handle(
         EvaluationRequestLoader $loader,
@@ -78,7 +78,8 @@ final class BotEvaluateCommand extends Command
 
         if (! $singleCase && ! $this->option('no-report')) {
             $writer->write($results);
-            $this->info('Evaluation reports written to docs/evaluation-results.md and evaluation/results.json.');
+            $paths = $writer->artifactPaths((string) config('bot.prompt_version'));
+            $this->info("Evaluation reports written to {$paths['markdown']} and {$paths['json']}.");
         }
 
         $technicalFailures = count(array_filter(
@@ -124,10 +125,12 @@ final class BotEvaluateCommand extends Command
 
     private function renderExisting(EvaluationReportWriter $writer): int
     {
-        $contents = file_get_contents(base_path('evaluation/results.json'));
+        $version = (string) config('bot.prompt_version');
+        $paths = $writer->artifactPaths($version);
+        $contents = file_get_contents(base_path($paths['json']));
 
         if ($contents === false) {
-            throw new RuntimeException('Saved evaluation results cannot be read.');
+            throw new RuntimeException('Saved current-version evaluation results cannot be read.');
         }
 
         try {
@@ -143,7 +146,7 @@ final class BotEvaluateCommand extends Command
         }
 
         $writer->write($cases);
-        $this->info('Evaluation reports rebuilt without provider calls.');
+        $this->info("{$version} evaluation reports rebuilt without provider calls.");
 
         return self::SUCCESS;
     }

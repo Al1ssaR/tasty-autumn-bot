@@ -70,7 +70,7 @@ final class BotLlmApplicationSmokeCommand extends Command
             if ($result->decision->technical_outcome !== 'valid'
                 || $result->decision->provider !== 'groq'
                 || $result->decision->model !== 'openai/gpt-oss-120b'
-                || $result->decision->prompt_version !== 'bot-v1'
+                || $result->decision->prompt_version !== config('bot.prompt_version')
                 || strlen($result->decision->rules_hash) !== 64
                 || $result->outgoingMessage->delivery_status !== 'sent'
                 || $telegram->sentMessages !== 1) {
@@ -80,11 +80,12 @@ final class BotLlmApplicationSmokeCommand extends Command
             }
 
             $this->info(sprintf(
-                'Application smoke passed: action=%s, reason=%s, provider=%s, model=%s, fake_telegram=sent.',
+                'Application smoke passed: action=%s, reason=%s, provider=%s, model=%s, prompt=%s, fake_telegram=sent.',
                 $result->decision->action,
                 $result->decision->business_reason,
                 $result->decision->provider,
                 $result->decision->model,
+                $result->decision->prompt_version,
             ));
 
             return self::SUCCESS;

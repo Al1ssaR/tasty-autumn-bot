@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'prompt_version' => 'bot-v1',
+    'prompt_version' => 'bot-v2',
     'system_prompt_path' => base_path('prompts/bot/system.md'),
     'response_schema_path' => base_path('prompts/bot/response-schema.json'),
     'rules_path' => base_path('docs/promo-rules.md'),

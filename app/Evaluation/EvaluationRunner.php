@@ -50,54 +50,15 @@ final class EvaluationRunner
         $request = $contextFactory->build($originalText);
         $identity = $this->client->identity();
         $attempt = 0;
+        $piiRedaction = $originalText === $request->userMessage
+            ? 'not_applicable'
+            : 'applied';
 
         while (true) {
             $attempt++;
 
             try {
                 $raw = $this->client->decide($request);
-                $validated = $this->validator->validate(
-                    $raw->content,
-                    new RuleReferenceIndex($request->rules),
-                );
-
-                $exactMatch = $validated->action->value === $expected['action']
-                    && $validated->reason->value === $expected['reason'];
-                $safeAnswer = $this->redactor->redact($validated->answer);
-
-                return [
-                    'number' => $number,
-                    'request' => $request->userMessage,
-                    'expected_action' => $expected['action'],
-                    'expected_reason' => $expected['reason'],
-                    'actual_action' => $validated->action->value,
-                    'actual_reason' => $validated->reason->value,
-                    'actual_answer' => $safeAnswer,
-                    'rule_references' => $validated->ruleReferences,
-                    'schema_validation' => 'passed',
-                    'semantic_validation' => 'passed',
-                    'provider' => $identity->provider,
-                    'model' => $identity->model,
-                    'prompt_version' => $request->promptVersion,
-                    'rules_hash' => $request->rulesHash,
-                    'evaluation_timestamp' => $evaluatedAt,
-                    'frozen_time' => self::FROZEN_TIME,
-                    'exact_match' => $exactMatch,
-                    'technical_failure' => null,
-                    'technical_detail' => null,
-                    'attempts' => $attempt,
-                    'pii_redaction' => $originalText === $request->userMessage
-                        ? 'not_applicable'
-                        : 'applied',
-                    'output_pii_redaction' => $safeAnswer === $validated->answer
-                        ? 'not_needed'
-                        : 'applied',
-                    'manual_assessment' => 'pending',
-                    'pass' => null,
-                    'comment' => $exactMatch
-                        ? 'Ожидает ручной содержательной проверки.'
-                        : 'Не совпадают ожидаемые action и/или reason.',
-                ];
             } catch (LlmRateLimitException $exception) {
                 if ($attempt >= $maxAttempts) {
                     return $this->technicalFailure(
@@ -112,11 +73,16 @@ final class EvaluationRunner
                         $attempt,
                         'api_failure',
                         $exception->getMessage(),
+                        'not_completed',
+                        'not_completed',
+                        $piiRedaction,
                     );
                 }
 
                 $delay = min(max($exception->retryAfterSeconds ?? 5, 1), 30);
                 sleep($delay);
+
+                continue;
             } catch (Throwable $exception) {
                 return $this->technicalFailure(
                     $number,
@@ -129,9 +95,72 @@ final class EvaluationRunner
                     $evaluatedAt,
                     $attempt,
                     $this->safeFailureName($exception),
-                    $exception->getMessage(),
+                    $this->safeFailureDetail($exception),
+                    'not_completed',
+                    'not_completed',
+                    $piiRedaction,
                 );
             }
+
+            try {
+                $validated = $this->validator->validate(
+                    $raw->content,
+                    new RuleReferenceIndex($request->rules),
+                );
+            } catch (Throwable $exception) {
+                return $this->technicalFailure(
+                    $number,
+                    $request->userMessage,
+                    $expected,
+                    $identity->provider,
+                    $identity->model,
+                    $request->promptVersion,
+                    $request->rulesHash,
+                    $evaluatedAt,
+                    $attempt,
+                    $this->safeFailureName($exception),
+                    $this->safeFailureDetail($exception),
+                    'passed',
+                    'failed',
+                    $piiRedaction,
+                );
+            }
+
+            $exactMatch = $validated->action->value === $expected['action']
+                && $validated->reason->value === $expected['reason'];
+            $safeAnswer = $this->redactor->redact($validated->answer);
+
+            return [
+                'number' => $number,
+                'request' => $request->userMessage,
+                'expected_action' => $expected['action'],
+                'expected_reason' => $expected['reason'],
+                'actual_action' => $validated->action->value,
+                'actual_reason' => $validated->reason->value,
+                'actual_answer' => $safeAnswer,
+                'rule_references' => $validated->ruleReferences,
+                'schema_validation' => 'passed',
+                'semantic_validation' => 'passed',
+                'provider' => $identity->provider,
+                'model' => $identity->model,
+                'prompt_version' => $request->promptVersion,
+                'rules_hash' => $request->rulesHash,
+                'evaluation_timestamp' => $evaluatedAt,
+                'frozen_time' => self::FROZEN_TIME,
+                'exact_match' => $exactMatch,
+                'technical_failure' => null,
+                'technical_detail' => null,
+                'attempts' => $attempt,
+                'pii_redaction' => $piiRedaction,
+                'output_pii_redaction' => $safeAnswer === $validated->answer
+                    ? 'not_needed'
+                    : 'applied',
+                'manual_assessment' => 'pending',
+                'pass' => null,
+                'comment' => $exactMatch
+                    ? 'Ожидает ручной содержательной проверки.'
+                    : 'Не совпадают ожидаемые action и/или reason.',
+            ];
         }
     }
 
@@ -151,6 +180,9 @@ final class EvaluationRunner
         int $attempts,
         string $failure,
         string $safeDetail,
+        string $schemaValidation,
+        string $semanticValidation,
+        string $piiRedaction,
     ): array {
         return [
             'number' => $number,
@@ -161,8 +193,8 @@ final class EvaluationRunner
             'actual_reason' => null,
             'actual_answer' => '',
             'rule_references' => [],
-            'schema_validation' => 'not_completed',
-            'semantic_validation' => 'not_completed',
+            'schema_validation' => $schemaValidation,
+            'semantic_validation' => $semanticValidation,
             'provider' => $provider,
             'model' => $model,
             'prompt_version' => $promptVersion,
@@ -173,7 +205,7 @@ final class EvaluationRunner
             'technical_failure' => $failure,
             'technical_detail' => mb_substr($safeDetail, 0, 200),
             'attempts' => $attempts,
-            'pii_redaction' => 'unknown',
+            'pii_redaction' => $piiRedaction,
             'output_pii_redaction' => 'not_completed',
             'manual_assessment' => 'technical_failure',
             'pass' => false,
@@ -188,6 +220,16 @@ final class EvaluationRunner
             $exception instanceof LlmApiException => 'api_failure',
             $exception instanceof MalformedLlmResponseException => 'malformed_response',
             default => 'application_failure',
+        };
+    }
+
+    private function safeFailureDetail(Throwable $exception): string
+    {
+        return match (true) {
+            $exception instanceof LlmTimeoutException,
+            $exception instanceof LlmApiException,
+            $exception instanceof MalformedLlmResponseException => $exception->getMessage(),
+            default => 'Application evaluation failed.',
         };
     }
 }

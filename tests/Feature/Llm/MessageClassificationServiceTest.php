@@ -76,7 +76,7 @@ class MessageClassificationServiceTest extends TestCase
         $this->assertSame(['2.3'], $result->decision->rule_references);
         $this->assertSame('fake-provider', $result->decision->provider);
         $this->assertSame('fake-model', $result->decision->model);
-        $this->assertSame('bot-v1', $result->decision->prompt_version);
+        $this->assertSame('bot-v2', $result->decision->prompt_version);
         $this->assertSame(hash('sha256', $this->llm->requests[0]->rules), $result->decision->rules_hash);
         $this->assertNull($result->ticket);
         $this->assertSame('bot', $result->outgoingMessage->author_type);
