@@ -393,18 +393,15 @@ Redaction уменьшает риск, но не считается исчерп
 - фильтры статистики по периоду;
 - автоматическая retention policy для support history;
 - сложная распределённая отказоустойчивость и exactly-once Telegram delivery;
-- выбор и SDK конкретного LLM-провайдера на текущем этапе.
+- fallback между LLM-провайдерами и provider SLA.
 
 ## Known decisions deferred to later stages
 
-Следующие вопросы намеренно не закрываются этим документом:
+Следующие вопросы намеренно не закрываются в MVP:
 
-- окончательная PostgreSQL-схема и названия полей;
-- точная JSON Schema LLM-ответа;
-- конкретный LLM provider и model;
-- конкретные поля и алгоритм PII redaction;
-- способ создания первого operator account;
 - политика retry для Telegram;
 - production transport для Telegram;
 - production retention policy;
+- production identity provider, роли и lifecycle операторов;
+- provider SLA и fallback strategy;
 - правила для пограничных чеков перед последним еженедельным и главным розыгрышами, которых нет в исходном документе акции.

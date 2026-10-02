@@ -23,11 +23,11 @@
 | Прогон 25 обращений | Оригинальный dataset, отдельные v1/v2/v3 JSON и Markdown, ручная оценка и технические сбои | `docs/requests.md`, `docs/evaluation-results-v3.md` | DONE |
 | Честный итог evaluation | `bot-v3`: 21/25 exact, 19/25 content PASS, 6 FAIL, 1 technical failure; №23–25 помечены как изменение product semantics, routing dataset — 8/10 | `docs/evaluation-results-v3.md`, `docs/routing-evaluation-v3.md` | DONE |
 | Архитектура, допущения и ERD | Границы, trade-offs, актуальные entities/relations/constraints/indexes | `docs/architecture.md`, `docs/assumptions.md`, `docs/database-schema.md` | DONE |
-| First-run README | Environment, APP_KEY, secrets, operator, panel, bot, Groq, tests, evaluation, stop | `README.md`, `.env.example` | DONE |
+| First-run README | Быстрый запуск: environment, APP_KEY, secrets, health, operator, panel, bot, Groq, tests, evaluation и stop | `README.md`, `.env.example` | DONE |
 | Development prompts | Реальные сохранённые постановки и индекс; runtime prompts отделены | `AGENTS.md`, `docs/agent-prompts/` | DONE |
-| 2–3 session exports | Fake logs не создавались; требуется пользовательский экспорт из Codex UI, если он доступен | `docs/agent-sessions/README.md` | MISSING |
+| 3 session links | Подготовлена честная структура; реальные Codex share links пользователь ещё не предоставил | `docs/agent-sessions/README.md` | MISSING |
 | `CLAUDE.md` | Claude Code не использовался | `README.md` | NOT REQUIRED |
 | Production improvements и ограничения | Отдельно перечислены без заявления об их реализации | `README.md` | DONE |
 | Secrets | `.env` игнорируется, placeholders безопасны; high-confidence scan tracked history не нашёл token/key/header | `.gitignore`, `.env.example`, Git audit | DONE |
 
-Обязательных функциональных требований MVP со статусом `MISSING` не обнаружено. Единственный отсутствующий deliverable — настоящие session exports, которые нельзя достоверно сгенерировать из prompt-файлов.
+Обязательных функциональных требований MVP со статусом `MISSING` не обнаружено. Единственный отсутствующий deliverable — три настоящих Codex session links, которые нельзя достоверно сгенерировать из prompt-файлов.

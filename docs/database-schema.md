@@ -1,6 +1,6 @@
 # Модель данных PostgreSQL для MVP «Вкусная осень»
 
-Статус документа: проектирование до создания Laravel migrations и Eloquent models.
+Статус документа: актуальная предметная схема, реализованная Laravel migrations и Eloquent models.
 
 Модель намеренно ограничена пятью предметными таблицами:
 
@@ -10,7 +10,7 @@
 4. `support_tickets`;
 5. `users`.
 
-Framework-таблицы Laravel не являются частью этого документа. Отдельные таблицы для Telegram updates, попыток доставки, статистики, правил, prompt-версий, ролей и истории статусов не требуются для согласованного MVP.
+Framework-таблицы Laravel (`migrations`, sessions, cache и jobs) не являются частью предметной ER-диаграммы, но создаются migrations вместе с ней. Отдельные таблицы для Telegram updates, попыток доставки, статистики, правил, prompt-версий, ролей и истории статусов не требуются для согласованного MVP. PostgreSQL dump для переноса не нужен: полная схема воспроизводится миграциями из `database/migrations/`.
 
 ## Goals
 
@@ -658,13 +658,12 @@ Operator message и `first_operator_response_at` сохраняются так �
 
 До следующих этапов намеренно отложены:
 
-- правила создания первого operator account;
 - максимальное число синхронных retry и UX ручного повтора;
 - шифрование отдельных полей и production retention/anonymization;
 - поддержка нескольких Telegram bots и составной idempotency key;
 - поддержка нескольких автоматических сообщений на один decision;
 - дополнительные индексы после появления реального объёма и query plans;
-- хранение framework sessions, password reset tokens и migration metadata;
+- production lifecycle операторских аккаунтов, SSO/MFA и восстановление доступа;
 - бизнес-правила пограничных чеков, отсутствующие в `docs/promo-rules.md`.
 
 ## Consistency with approved architecture
