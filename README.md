@@ -2,6 +2,8 @@
 
 MVP системы поддержки участников промоакции M-Social. Проект содержит Laravel 13, PostgreSQL 17, Docker Compose, Telegram-контур на long polling, provider-neutral LLM-слой с concrete Groq adapter и server-rendered операторскую панель. Новое личное текстовое сообщение проходит PII redaction, классификацию по полному документу правил и строгую проверку structured result. Затем бот отвечает по правилам, даёт application-owned static response без ticket либо передаёт действительно требующий человека вопрос оператору.
 
+Отдельный маршрут для проверяющего — в [`docs/m-social-tasty-autumn-submission-guide.docx`](docs/m-social-tasty-autumn-submission-guide.docx): запуск с переданным приватно `.env`, создание оператора, ручная проверка Telegram-бота и панели, карта репозитория, evaluation и ограничения MVP.
+
 ## Архитектура
 
 Основной поток MVP:
