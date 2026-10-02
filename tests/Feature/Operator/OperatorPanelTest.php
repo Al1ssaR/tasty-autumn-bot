@@ -148,8 +148,13 @@ class OperatorPanelTest extends TestCase
         $this->assertSame(4_200_001, $message->telegram_message_id);
         $this->assertSame($operator->id, $message->operator_user_id);
         $this->assertSame($ticket->id, $message->support_ticket_id);
+        $this->assertSame('Проверили ваш вопрос.', $message->body);
         $this->assertNotNull($firstResponse);
         $this->assertCount(1, $this->telegram->sentMessages);
+        $this->assertSame(
+            'Оператор: Проверили ваш вопрос.',
+            $this->telegram->sentMessages[0]['text'],
+        );
 
         $this->actingAs($operator)
             ->post("/tickets/{$ticket->id}/replies", ['body' => 'Дополнительный ответ.'])
@@ -207,10 +212,20 @@ class OperatorPanelTest extends TestCase
         $this->assertSame([], $this->telegram->sentMessages);
     }
 
-    public function test_closing_ticket_is_idempotent_and_sends_no_telegram_message(): void
+    public function test_closing_ticket_persists_and_delivers_one_system_notification_idempotently(): void
     {
         $operator = $this->operator();
         $ticket = $this->ticket();
+        $transactionLevel = DB::transactionLevel();
+        $this->telegram->onSend = function () use ($ticket, $transactionLevel): void {
+            $this->assertSame($transactionLevel, DB::transactionLevel());
+            $this->assertDatabaseHas('messages', [
+                'support_ticket_id' => $ticket->id,
+                'author_type' => 'system',
+                'delivery_status' => 'pending',
+                'body' => 'Обращение закрыто. Если у вас появится новый вопрос, просто напишите сюда.',
+            ]);
+        };
 
         $this->actingAs($operator)->post("/tickets/{$ticket->id}/close")->assertSessionHas('success');
         $closedAt = $ticket->fresh()->closed_at;
@@ -218,17 +233,106 @@ class OperatorPanelTest extends TestCase
 
         $this->assertSame('closed', $ticket->fresh()->status);
         $this->assertTrue($ticket->fresh()->closed_at->equalTo($closedAt));
-        $this->assertSame([], $this->telegram->sentMessages);
+        $this->assertCount(1, $this->telegram->sentMessages);
+        $this->assertSame(
+            'Обращение закрыто. Если у вас появится новый вопрос, просто напишите сюда.',
+            $this->telegram->sentMessages[0]['text'],
+        );
+        $this->assertSame(1, Message::query()
+            ->where('support_ticket_id', $ticket->id)
+            ->where('author_type', 'system')
+            ->where('body', 'Обращение закрыто. Если у вас появится новый вопрос, просто напишите сюда.')
+            ->count());
     }
 
-    public function test_statistics_are_calculated_from_persisted_data(): void
+    public function test_close_notification_failure_keeps_ticket_closed_and_message_failed(): void
     {
         $operator = $this->operator();
-        $answeredTicket = $this->ticket('Персональный вопрос', Carbon::parse('2026-10-01 06:00:00 UTC'));
-        $answeredTicket->update([
-            'first_operator_response_at' => Carbon::parse('2026-10-01 06:30:00 UTC'),
+        $ticket = $this->ticket();
+        $this->telegram->sendResult = TelegramSendResult::failure(
+            new TelegramTransportError('sendMessage', 503, null, 'Temporary failure.'),
+        );
+
+        $this->actingAs($operator)->post("/tickets/{$ticket->id}/close")->assertSessionHas('success');
+
+        $message = Message::query()
+            ->where('support_ticket_id', $ticket->id)
+            ->where('author_type', 'system')
+            ->firstOrFail();
+        $this->assertSame('closed', $ticket->fresh()->status);
+        $this->assertNotNull($ticket->fresh()->closed_at);
+        $this->assertSame('failed', $message->delivery_status);
+        $this->assertNotNull($message->delivery_error);
+    }
+
+    public function test_statistics_format_five_minutes_without_timezone_offset(): void
+    {
+        $operator = $this->operator();
+        $ticket = $this->ticket('Персональный вопрос', Carbon::parse('2026-10-01 10:00:00 UTC'));
+        $ticket->update([
+            'first_operator_response_at' => Carbon::parse('2026-10-01 10:05:00 UTC'),
         ]);
-        $this->ticket('Без ответа', Carbon::parse('2026-10-01 07:00:00 UTC'));
+
+        $this->actingAs($operator)
+            ->get('/statistics')
+            ->assertOk()
+            ->assertSee('5 мин')
+            ->assertDontSee('3 ч 5 мин');
+
+        $this->assertSame(300.0, app(SupportStatistics::class)->allTime()['average_operator_response_seconds']);
+    }
+
+    public function test_statistics_format_duration_longer_than_one_hour_without_timezone_offset(): void
+    {
+        $operator = $this->operator();
+        $ticket = $this->ticket('Персональный вопрос', Carbon::parse('2026-10-01 10:00:00 UTC'));
+        $ticket->update([
+            'first_operator_response_at' => Carbon::parse('2026-10-01 11:08:00 UTC'),
+        ]);
+
+        $this->actingAs($operator)
+            ->get('/statistics')
+            ->assertOk()
+            ->assertSee('1 ч 8 мин')
+            ->assertDontSee('4 ч 8 мин');
+    }
+
+    public function test_participant_follow_up_does_not_reset_response_time_start(): void
+    {
+        $operator = $this->operator();
+        $createdAt = Carbon::parse('2026-10-01 10:00:00 UTC');
+        $ticket = $this->ticket('Персональный вопрос', $createdAt);
+        $this->participantMessage(
+            $ticket->participant,
+            'Дополнительные сведения.',
+            $ticket,
+            Carbon::parse('2026-10-01 10:07:00 UTC'),
+        );
+        $this->app->instance(
+            Clock::class,
+            new FakeClock(new DateTimeImmutable('2026-10-01T10:10:00+00:00')),
+        );
+
+        $this->actingAs($operator)
+            ->post("/tickets/{$ticket->id}/replies", ['body' => 'Первый ответ.'])
+            ->assertSessionHas('success');
+
+        $this->assertSame(600.0, app(SupportStatistics::class)->allTime()['average_operator_response_seconds']);
+        $this->actingAs($operator)->get('/statistics')->assertSee('10 мин');
+    }
+
+    public function test_statistics_average_uses_each_ticket_creation_and_excludes_unanswered(): void
+    {
+        $operator = $this->operator();
+        $fiveMinutes = $this->ticket('Первый вопрос', Carbon::parse('2026-10-01 06:00:00 UTC'));
+        $fiveMinutes->update([
+            'first_operator_response_at' => Carbon::parse('2026-10-01 06:05:00 UTC'),
+        ]);
+        $fifteenMinutes = $this->ticket('Второй вопрос', Carbon::parse('2026-10-01 07:00:00 UTC'));
+        $fifteenMinutes->update([
+            'first_operator_response_at' => Carbon::parse('2026-10-01 07:15:00 UTC'),
+        ]);
+        $this->ticket('Без ответа', Carbon::parse('2026-10-01 08:00:00 UTC'));
         $this->botResolvedMessage();
         $this->botAnswerWithFailedDelivery();
 
@@ -237,11 +341,12 @@ class OperatorPanelTest extends TestCase
             ->assertOk()
             ->assertSee('Решено ботом')
             ->assertSee('Передано оператору')
-            ->assertSee('Среднее время первого ответа');
+            ->assertSee('Среднее время первого ответа')
+            ->assertSee('10 мин');
 
         $this->assertSame(1, app(SupportStatistics::class)->allTime()['bot_resolved']);
-        $this->assertSame(2, app(SupportStatistics::class)->allTime()['escalated']);
-        $this->assertSame(1800.0, app(SupportStatistics::class)->allTime()['average_operator_response_seconds']);
+        $this->assertSame(3, app(SupportStatistics::class)->allTime()['escalated']);
+        $this->assertSame(600.0, app(SupportStatistics::class)->allTime()['average_operator_response_seconds']);
     }
 
     private function operator(bool $active = true, string $password = 'password'): User
@@ -280,8 +385,9 @@ class OperatorPanelTest extends TestCase
         TelegramParticipant $participant,
         string $body,
         ?SupportTicket $ticket = null,
+        ?Carbon $createdAt = null,
     ): Message {
-        return Message::query()->create([
+        $message = Message::query()->create([
             'telegram_participant_id' => $participant->id,
             'support_ticket_id' => $ticket?->id,
             'operator_user_id' => null,
@@ -295,6 +401,14 @@ class OperatorPanelTest extends TestCase
             'delivery_error' => null,
             'delivery_attempt_count' => 0,
         ]);
+
+        if ($createdAt !== null) {
+            $message->timestamps = false;
+            $message->forceFill(['created_at' => $createdAt, 'updated_at' => $createdAt])->save();
+            $message->timestamps = true;
+        }
+
+        return $message->refresh();
     }
 
     private function botResolvedMessage(): void

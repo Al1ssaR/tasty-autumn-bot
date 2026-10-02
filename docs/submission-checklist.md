@@ -16,9 +16,9 @@
 | PII и prompt injection | Телефоны/PAN redacted до provider; unsafe generated answer отбрасывается; tools у LLM нет | `PiiRedactor`, `StructuredDecisionValidator` | DONE |
 | Operator authentication | Login/logout, session auth, inactive operator restriction, interactive account creation | `app/Http/`, `operator:create` | DONE |
 | Очередь и история | Только open tickets, trigger и последующие participant/bot/system/operator messages | operator controllers/services/views | DONE |
-| Ответ оператора | Сохранение до внешнего вызова, Telegram delivery status, safe failure state | `TicketReplyService`, `TelegramMessageDelivery` | DONE |
-| Закрытие обращения | Идемпотентное закрытие; closed ticket исчезает из queue; новый вопрос снова классифицируется | `TicketCloseService`, feature tests | DONE |
-| Статистика | Delivered valid answers; число tickets; среднее `created_at → first_operator_response_at` только для отвеченных | `SupportStatistics`, statistics view/tests | DONE |
+| Ответ оператора | Сохранение исходного body до внешнего вызова, delivery-prefix `Оператор:`, Telegram delivery status, safe failure state | `TicketReplyService`, `TelegramMessageDelivery` | DONE |
+| Закрытие обращения | Transactional pending notification, доставка после commit, failed state без rollback, идемпотентный repeat close; новый вопрос снова классифицируется | `TicketCloseService`, feature tests | DONE |
+| Статистика | Delivered valid answers; число tickets; средняя duration `created_at → first_operator_response_at` только для отвеченных, без timezone offset | `SupportStatistics`, duration formatter, statistics view/tests | DONE |
 | Runtime prompt отдельными файлами | `bot-v2`, strict JSON Schema, неизменяемый baseline `bot-v1` | `prompts/bot/` | DONE |
 | Прогон 25 обращений | Оригинальный dataset, v1/v2 JSON и Markdown, ручная оценка и технические сбои | `docs/requests.md`, `docs/evaluation-results-v2.md` | DONE |
 | Честный итог evaluation | `bot-v2`: 20/25 exact, 17/25 content PASS, 8 FAIL, 2 technical failures, security 2/2 | `docs/evaluation-results-v2.md` | DONE |

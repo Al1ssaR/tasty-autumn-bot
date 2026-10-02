@@ -25,7 +25,7 @@ final class TelegramMessageDelivery
         try {
             $result = $this->client->sendMessage(
                 $message->participant()->firstOrFail()->telegram_chat_id,
-                $message->body,
+                $this->deliveryBody($message),
             );
         } catch (Throwable) {
             $message->update([
@@ -61,5 +61,12 @@ final class TelegramMessageDelivery
         }
 
         return $message->refresh();
+    }
+
+    private function deliveryBody(Message $message): string
+    {
+        return $message->author_type === 'operator'
+            ? "Оператор: {$message->body}"
+            : $message->body;
     }
 }
