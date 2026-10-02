@@ -1,3 +1,5 @@
+# Codex Prompt 07 — Telegram transport и реальный BotFather smoke-test
+
 Продолжаем разработку тестового задания M-Social «Вкусная осень».
 
 Предыдущие этапы завершены:
@@ -900,7 +902,7 @@ Concurrency guarantee participant/update должна опираться на DB
 Commit message:
 
 - на русском;
-- в стиле предыдущей истории;
+- в стиле предыдущих commit;
 - описывает Telegram transport/intake;
 - без упоминаний Codex/AI/prompt.
 
