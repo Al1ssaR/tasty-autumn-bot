@@ -1,0 +1,67 @@
+name: tasty-autumn-bot-mvp
+
+services:
+  app:
+    image: tasty-autumn-bot-mvp-application:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /var/www/html/.env
+    command:
+      - sh
+      - -c
+      - php artisan migrate --force && exec php artisan serve --host=0.0.0.0 --port=8000
+    init: true
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "exit(@file_get_contents('http://127.0.0.1:8000/up') === false ? 1 : 0);"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  bot:
+    image: tasty-autumn-bot-mvp-application:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /var/www/html/.env
+    command:
+      - php
+      - artisan
+      - telegram:poll
+    init: true
+
+  postgres:
+    image: postgres:17.11-alpine3.23
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-tasty_autumn}
+      POSTGRES_USER: ${DB_USERNAME:-tasty_autumn}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-local-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

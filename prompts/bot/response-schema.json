@@ -1,0 +1,36 @@
+{
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "action",
+        "reason",
+        "answer",
+        "rule_references"
+    ],
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": ["answer", "escalate", "respond_static"]
+        },
+        "reason": {
+            "type": "string",
+            "enum": [
+                "grounded_in_rules",
+                "participant_data_required",
+                "missing_rule",
+                "insufficient_context",
+                "unsafe_request",
+                "out_of_scope"
+            ]
+        },
+        "answer": {
+            "type": "string"
+        },
+        "rule_references": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}
