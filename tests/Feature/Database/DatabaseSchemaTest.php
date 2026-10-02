@@ -170,6 +170,40 @@ class DatabaseSchemaTest extends TestCase
         $this->createDecision($messageId, ['business_reason' => null]);
     }
 
+    public function test_respond_static_and_out_of_scope_are_allowed(): void
+    {
+        $messageId = $this->createParticipantMessage($this->createParticipant());
+
+        $this->createDecision($messageId, [
+            'action' => 'respond_static',
+            'business_reason' => 'out_of_scope',
+        ]);
+
+        $this->assertDatabaseHas('bot_decisions', [
+            'incoming_message_id' => $messageId,
+            'action' => 'respond_static',
+            'business_reason' => 'out_of_scope',
+        ]);
+    }
+
+    public function test_unknown_decision_action_is_rejected(): void
+    {
+        $messageId = $this->createParticipantMessage($this->createParticipant());
+
+        $this->expectException(QueryException::class);
+
+        $this->createDecision($messageId, ['action' => 'ignore']);
+    }
+
+    public function test_unknown_business_reason_is_rejected(): void
+    {
+        $messageId = $this->createParticipantMessage($this->createParticipant());
+
+        $this->expectException(QueryException::class);
+
+        $this->createDecision($messageId, ['business_reason' => 'other']);
+    }
+
     public function test_rule_references_must_be_a_json_array(): void
     {
         $messageId = $this->createParticipantMessage($this->createParticipant());

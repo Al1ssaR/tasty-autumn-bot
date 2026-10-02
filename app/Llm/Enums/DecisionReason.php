@@ -9,4 +9,5 @@ enum DecisionReason: string
     case MissingRule = 'missing_rule';
     case InsufficientContext = 'insufficient_context';
     case UnsafeRequest = 'unsafe_request';
+    case OutOfScope = 'out_of_scope';
 }

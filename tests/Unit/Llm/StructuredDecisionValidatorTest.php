@@ -49,17 +49,27 @@ class StructuredDecisionValidatorTest extends TestCase
         $this->assertSame('Общая справка.', $decision->answer);
     }
 
-    public function test_unsafe_generated_content_is_discarded(): void
+    #[DataProvider('staticResponses')]
+    public function test_static_generated_content_is_discarded(string $reason): void
     {
         $decision = $this->validator->validate($this->json([
-            'action' => 'escalate',
-            'reason' => 'unsafe_request',
+            'action' => 'respond_static',
+            'reason' => $reason,
             'answer' => 'Недоверенный сгенерированный текст.',
             'rule_references' => [],
         ]), $this->rules);
 
+        $this->assertSame(DecisionAction::RespondStatic, $decision->action);
         $this->assertSame('', $decision->answer);
         $this->assertSame([], $decision->ruleReferences);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function staticResponses(): iterable
+    {
+        yield 'insufficient context' => ['insufficient_context'];
+        yield 'out of scope' => ['out_of_scope'];
+        yield 'unsafe request' => ['unsafe_request'];
     }
 
     #[DataProvider('invalidResponses')]
@@ -109,6 +119,24 @@ class StructuredDecisionValidatorTest extends TestCase
             'reason' => 'grounded_in_rules',
             'answer' => '',
             'rule_references' => [],
+        ])];
+        yield 'escalate with unsafe reason' => [self::encode([
+            'action' => 'escalate',
+            'reason' => 'unsafe_request',
+            'answer' => '',
+            'rule_references' => [],
+        ])];
+        yield 'static with missing rule reason' => [self::encode([
+            'action' => 'respond_static',
+            'reason' => 'missing_rule',
+            'answer' => '',
+            'rule_references' => [],
+        ])];
+        yield 'static with references' => [self::encode([
+            'action' => 'respond_static',
+            'reason' => 'out_of_scope',
+            'answer' => '',
+            'rule_references' => ['1.1'],
         ])];
         yield 'unexpected field' => [self::encode([
             'action' => 'escalate',

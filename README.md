@@ -1,12 +1,12 @@
 # «Вкусная осень» — AI Support MVP
 
-MVP системы поддержки участников промоакции M-Social. Проект содержит Laravel 13, PostgreSQL 17, Docker Compose, Telegram-контур на long polling, provider-neutral LLM-слой с concrete Groq adapter и server-rendered операторскую панель. Новое личное текстовое сообщение проходит PII redaction, классификацию по полному документу правил, строгую проверку structured result и затем получает ответ либо создаёт обращение оператору. Оператор видит очередь и историю, отвечает участнику через существующий Telegram transport, закрывает обращение и просматривает all-time статистику.
+MVP системы поддержки участников промоакции M-Social. Проект содержит Laravel 13, PostgreSQL 17, Docker Compose, Telegram-контур на long polling, provider-neutral LLM-слой с concrete Groq adapter и server-rendered операторскую панель. Новое личное текстовое сообщение проходит PII redaction, классификацию по полному документу правил и строгую проверку structured result. Затем бот отвечает по правилам, даёт application-owned static response без ticket либо передаёт действительно требующий человека вопрос оператору.
 
 ## Архитектура
 
 Основной поток MVP:
 
-`Telegram → long polling intake → PII redaction → LLM classification → answer или escalation → PostgreSQL → operator panel → Telegram reply`.
+`Telegram → long polling intake → PII redaction → LLM classification → answer / respond_static / escalation → PostgreSQL → operator panel → Telegram reply`.
 
 Приложение является одним Laravel-монолитом с отдельными Compose-процессами web-приложения и Telegram worker. LLM не имеет доступа к БД, Telegram API или административным операциям: оно возвращает только структурированное предложение, которое валидирует application layer. Полное описание границ и отказоустойчивости находится в [`docs/architecture.md`](docs/architecture.md), а фактическая PostgreSQL-схема — в [`docs/database-schema.md`](docs/database-schema.md).
 
@@ -128,7 +128,7 @@ HTTP timeout должен быть больше `TELEGRAM_LONG_POLL_TIMEOUT`; wo
 
 ## LLM-слой
 
-Runtime использует prompt версии `bot-v2` из `prompts/bot/system.md` и строгий контракт `prompts/bot/response-schema.json`. Неизменяемый baseline `bot-v1` сохранён в `prompts/bot/versions/bot-v1.md`, а точная копия текущей версии — в `prompts/bot/versions/bot-v2.md`. Полный `docs/promo-rules.md`, текущее московское время и redacted-копия пользовательского сообщения передаются отдельно. SHA-256 точных bytes правил сохраняется вместе с решением.
+Runtime использует prompt версии `bot-v3` из `prompts/bot/system.md` и строгий контракт `prompts/bot/response-schema.json`. Версии `bot-v1` и `bot-v2` сохранены без изменений, а `prompts/bot/versions/bot-v3.md` совпадает с текущим runtime prompt. Полный `docs/promo-rules.md`, текущее московское время и redacted-копия пользовательского сообщения передаются отдельно. SHA-256 точных bytes правил сохраняется вместе с решением.
 
 Перед LLM маскируются распространённые российские номера телефонов и вероятные номера банковских карт. Оригинальный текст остаётся в истории PostgreSQL, а redacted-копия не сохраняется. Это ограниченная защита для явно распознаваемых форматов, а не универсальный DLP.
 
@@ -136,7 +136,7 @@ Runtime использует prompt версии `bot-v2` из `prompts/bot/syst
 
 Для неизвестного provider production-binding не подменяет конфигурацию Groq или Fake client: применяется существующий безопасный unavailable-client и техническая fail-safe эскалация. HTTP/provider error, включая 401/403, 429 и 5xx, становится `api_failure`; timeout — `timeout`; отсутствующий или некорректный assistant content — `malformed_response`. Публичные ошибки не содержат API key, Authorization header, provider body или полный request URL.
 
-При валидном `answer` приложение сохраняет decision и исходящее сообщение, затем вне database transaction вызывает Telegram. При `escalate`, malformed result, timeout или API/application failure создаётся обращение и отправляется предсказуемое application-owned уведомление. Сгенерированный моделью ответ для `unsafe_request` не используется.
+При валидном `answer` приложение сохраняет grounded ответ без ticket. `respond_static` используется только для `insufficient_context`, `out_of_scope` и `unsafe_request`: ticket не создаётся, свободный текст модели отбрасывается, а приложение отправляет собственную формулировку. Валидные `participant_data_required` и `missing_rule`, а также malformed result, timeout или API/application failure создают обращение. Таким образом, нормальный вопрос по акции без правила не теряется, но приветствия, посторонние запросы и prompt injection не засоряют очередь.
 
 ## Groq smoke-test и evaluation
 
@@ -146,10 +146,18 @@ Runtime использует prompt версии `bot-v2` из `prompts/bot/syst
 docker compose run --rm --no-deps app php artisan bot:evaluate --case=1 --no-report --max-attempts=1
 ```
 
-Полный evaluation читает тексты непосредственно из `docs/requests.md`, выполняет все 25 cases строго последовательно и использует frozen time `2026-09-30T12:00:00+03:00`. Expected mapping хранится только в `evaluation/expected.php` и не используется production-классификацией:
+Полный evaluation читает тексты непосредственно из `docs/requests.md`, выполняет все 25 cases строго последовательно и использует frozen time `2026-09-30T12:00:00+03:00`. Для `bot-v3` expected mapping хранится отдельно в `evaluation/expected-v3.php` и не используется production-классификацией:
 
 ```bash
-docker compose run --rm --no-deps app php artisan bot:evaluate
+docker compose run --rm --no-deps --user 0:0 -v "${PWD}/evaluation:/var/www/html/evaluation" -v "${PWD}/docs:/var/www/html/docs" app php artisan bot:evaluate
+```
+
+Bind mounts сохраняют отчёты из одноразового контейнера в рабочую копию; `--user 0:0` используется только этой CLI-командой для записи host artifacts и не меняет пользователя runtime-контейнеров `app`/`bot`.
+
+Отдельный generalization dataset из 10 сообщений проверяет greeting, small talk, unrelated question, gibberish, unclear promo question, missing-rule promo question, participant-specific request, prompt injection, grounded FAQ и administrative command:
+
+```bash
+docker compose run --rm --no-deps app php artisan bot:evaluate-routing
 ```
 
 При 429 runner учитывает `Retry-After`, ждёт не более 30 секунд за одну попытку и делает максимум три попытки case. Production classification не повторяет внешний вызов бесконечно и сразу использует fail-safe. Raw provider responses и secrets в artifacts не сохраняются; обращение №22 публикуется только с `[CARD_REDACTED]`.
@@ -157,7 +165,8 @@ docker compose run --rm --no-deps app php artisan bot:evaluate
 Артефакты версионированы и не перезаписывают предыдущий прогон:
 
 - `bot-v1`: `docs/evaluation-results.md` и `evaluation/results.json`;
-- текущий итоговый `bot-v2`: [`docs/evaluation-results-v2.md`](docs/evaluation-results-v2.md) и `evaluation/results-v2.json`.
+- `bot-v2`: [`docs/evaluation-results-v2.md`](docs/evaluation-results-v2.md) и `evaluation/results-v2.json`;
+- `bot-v3`: [`docs/evaluation-results-v3.md`](docs/evaluation-results-v3.md) и `evaluation/results-v3.json`; отдельный routing-прогон зафиксирован в [`docs/routing-evaluation-v3.md`](docs/routing-evaluation-v3.md).
 
 История одной контролируемой итерации и наблюдаемые изменения поведения описаны в `docs/prompt-iterations.md`.
 
@@ -167,7 +176,28 @@ Application-level live smoke использует real Groq, настоящий 
 docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_llm_test app php artisan bot:llm-application-smoke
 ```
 
-`bot-v1` является неизменяемой baseline-версией. Зафиксированный baseline дал 16 из 25 точных совпадений `action + reason`, 4 технических сбоя и 11 из 25 строгих ручных PASS по содержанию. Контролируемый прогон `bot-v2` дал соответственно 20 из 25, 2 и 17 из 25. Подробный разбор и ограничения находятся в версионированных отчётах.
+`bot-v1` является неизменяемой baseline-версией. Зафиксированный baseline дал 16 из 25 точных совпадений `action + reason`, 4 технических сбоя и 11 из 25 строгих ручных PASS по содержанию. Контролируемый прогон `bot-v2` дал соответственно 20 из 25, 2 и 17 из 25. Прогон `bot-v3` дал 21 из 25 exact, 1 technical failure и 19 из 25 manual PASS; эти числа напрямую не являются score-улучшением относительно v2, потому что у №23–25 expected behavior намеренно изменён вместе с продуктовой семантикой. Отдельный routing dataset дал 8/10 exact и один technical failure.
+
+## Ручная проверка MVP
+
+1. Запустить проект командой `docker compose up`.
+2. Войти в операторскую панель.
+3. Отправить боту FAQ по правилам акции.
+4. Убедиться, что пришёл содержательный bot answer.
+5. Отправить `привет`.
+6. Убедиться, что ответ пришёл, но новый ticket в панели не появился.
+7. Отправить бессвязное или не относящееся к акции сообщение.
+8. Убедиться, что ticket также не появился.
+9. Отправить вопрос о статусе конкретного чека, приза или доставки.
+10. Увидеть новый ticket в очереди.
+11. Ответить участнику из панели.
+12. Убедиться, что Telegram-сообщение начинается с `Оператор:`.
+13. Закрыть ticket.
+14. Получить отдельное Telegram-уведомление о закрытии.
+15. Написать новый вопрос после закрытия.
+16. Убедиться, что он снова проходит обычную bot classification.
+17. Открыть страницу статистики.
+18. Проверить, что среднее время ответа выглядит как длительность без лишних трёх часов.
 
 ## База данных
 
@@ -189,7 +219,7 @@ docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_llm_test app php a
 - Support history не удаляется автоматически: production retention policy не определена.
 - Поддерживаются только текстовые private messages; вложения не сохраняются и не анализируются.
 - Использованный Groq free-tier не гарантирует стабильную доступность, latency и отсутствие rate limits.
-- `bot-v2` улучшил evaluation до 17/25 строгих содержательных PASS, но оставшиеся ошибки и provider failures описаны в `docs/evaluation-results-v2.md`.
+- `bot-v2` дал 17/25 строгих содержательных PASS; `bot-v3` меняет routing semantics, но не устраняет автоматически все зафиксированные calendar/grounding риски содержательных ответов.
 
 ## Что улучшить для production
 
@@ -200,7 +230,7 @@ docker compose run --rm --no-deps -e DB_DATABASE=tasty_autumn_llm_test app php a
 - согласовать retention/access policy, резервное копирование и восстановление PostgreSQL;
 - добавить SSO/MFA и управление операторами;
 - выбрать LLM-провайдера с подходящим SLA и продолжить prompt/model evaluation;
-- устранить зафиксированные дефекты поведения `bot-v2` до production-запуска.
+- продолжить работу над зафиксированными calendar/grounding дефектами содержательных ответов до production-запуска.
 
 Эти улучшения не заявлены как реализованные и не требуются для локального MVP.
 

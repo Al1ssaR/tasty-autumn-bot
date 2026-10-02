@@ -62,25 +62,41 @@ final class StructuredDecisionValidator
             throw new MalformedLlmResponseException('LLM answer exceeds the maximum length.');
         }
 
+        if ($action === DecisionAction::RespondStatic) {
+            if (! in_array($reason, [
+                DecisionReason::InsufficientContext,
+                DecisionReason::OutOfScope,
+                DecisionReason::UnsafeRequest,
+            ], true) || $payload['rule_references'] !== []) {
+                throw new MalformedLlmResponseException(
+                    'Static response decision violates semantic invariants.',
+                );
+            }
+
+            return new ValidatedDecision($action, $reason, '', []);
+        }
+
         $references = $this->validateReferences($payload['rule_references'], $ruleIndex);
 
         if ($action === DecisionAction::Answer) {
             if ($reason !== DecisionReason::GroundedInRules || $answer === '' || $references === []) {
                 throw new MalformedLlmResponseException('Answer decision violates semantic invariants.');
             }
-        } elseif ($reason === DecisionReason::GroundedInRules) {
-            throw new MalformedLlmResponseException('Escalation cannot use grounded_in_rules reason.');
-        }
+        } else {
+            if (! in_array($reason, [
+                DecisionReason::ParticipantDataRequired,
+                DecisionReason::MissingRule,
+            ], true)) {
+                throw new MalformedLlmResponseException(
+                    'Escalation decision violates semantic invariants.',
+                );
+            }
 
-        if ($reason === DecisionReason::UnsafeRequest) {
-            return new ValidatedDecision($action, $reason, '', []);
-        }
-
-        if ($action === DecisionAction::Escalate
-            && (($answer === '') !== ($references === []))) {
-            throw new MalformedLlmResponseException(
-                'Escalation partial answer and rule references are inconsistent.',
-            );
+            if (($answer === '') !== ($references === [])) {
+                throw new MalformedLlmResponseException(
+                    'Escalation partial answer and rule references are inconsistent.',
+                );
+            }
         }
 
         return new ValidatedDecision($action, $reason, $answer, $references);

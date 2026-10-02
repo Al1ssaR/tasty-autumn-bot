@@ -69,7 +69,7 @@ flowchart LR
 - получить update;
 - выделить поддерживаемое текстовое сообщение и Telegram identifiers;
 - передать команду application layer;
-- не содержать правил акции и решений `answer/escalate`.
+- не содержать правил акции и решений `answer/escalate/respond_static`.
 
 Для одного bot token в MVP запускается один polling worker. Фото, документы, voice, sticker и другие типы сообщений не передаются LLM.
 
@@ -218,7 +218,7 @@ LLM является недоверенным вычислительным ко�
 
 ### Что модель может предложить
 
-- `action`: `answer` или `escalate`;
+- `action`: `answer`, `escalate` или `respond_static`;
 - `reason` из закрытого enum;
 - текст ответа или достоверной справочной части;
 - ссылки на пункты правил.
@@ -229,7 +229,10 @@ LLM является недоверенным вычислительным ко�
 - `participant_data_required`;
 - `missing_rule`;
 - `insufficient_context`;
-- `unsafe_request`.
+- `unsafe_request`;
+- `out_of_scope`.
+
+Валидные business combinations закрыты: `answer / grounded_in_rules`; `escalate / participant_data_required|missing_rule`; `respond_static / insufficient_context|out_of_scope|unsafe_request`. Только `escalate` создаёт support ticket. Для `respond_static` application layer отбрасывает сгенерированный текст и выбирает собственный ответ. Технически невалидный результат не становится static response: fail-safe остаётся `escalate` с `business_reason = NULL`.
 
 ### Чего модель не может делать
 
@@ -242,7 +245,7 @@ LLM является недоверенным вычислительным ко�
 - подтверждать не выполненную системой операцию;
 - предоставлять пользователю права на основании текста сообщения.
 
-Application layer принимает только известный контракт. Неизвестное действие, malformed response или нарушение инвариантов преобразуется в `escalate`.
+Application layer принимает только известный контракт. Неизвестное действие, malformed response или нарушение инвариантов преобразуется в технический fail-safe `escalate`.
 
 ### Проверка результата
 

@@ -12,16 +12,16 @@
 | Long polling и text intake | Worker, parser, private text messages, static response для unsupported attachments | `app/Telegram/`, `app/Console/Commands/TelegramPollCommand.php` | DONE |
 | Идемпотентность updates | UNIQUE `messages.telegram_update_id` и безопасная обработка duplicate | migration, `PostgresIncomingMessageIntake` | DONE |
 | Ответ по правилам | Полные правила и МСК-время передаются LLM, structured result валидируется | `app/Llm/`, `prompts/bot/` | DONE |
-| Эскалация | Personal/missing/unsafe/technical cases создают ticket; application добавляет notice | `MessageClassificationService` | DONE |
+| Routing | `answer`; ticket только для personal/missing и technical fail-safe; static response для unclear/out-of-scope/unsafe | `MessageClassificationService`, routing dataset/tests | DONE |
 | PII и prompt injection | Телефоны/PAN redacted до provider; unsafe generated answer отбрасывается; tools у LLM нет | `PiiRedactor`, `StructuredDecisionValidator` | DONE |
 | Operator authentication | Login/logout, session auth, inactive operator restriction, interactive account creation | `app/Http/`, `operator:create` | DONE |
 | Очередь и история | Только open tickets, trigger и последующие participant/bot/system/operator messages | operator controllers/services/views | DONE |
 | Ответ оператора | Сохранение исходного body до внешнего вызова, delivery-prefix `Оператор:`, Telegram delivery status, safe failure state | `TicketReplyService`, `TelegramMessageDelivery` | DONE |
 | Закрытие обращения | Transactional pending notification, доставка после commit, failed state без rollback, идемпотентный repeat close; новый вопрос снова классифицируется | `TicketCloseService`, feature tests | DONE |
 | Статистика | Delivered valid answers; число tickets; средняя duration `created_at → first_operator_response_at` только для отвеченных, без timezone offset | `SupportStatistics`, duration formatter, statistics view/tests | DONE |
-| Runtime prompt отдельными файлами | `bot-v2`, strict JSON Schema, неизменяемый baseline `bot-v1` | `prompts/bot/` | DONE |
-| Прогон 25 обращений | Оригинальный dataset, v1/v2 JSON и Markdown, ручная оценка и технические сбои | `docs/requests.md`, `docs/evaluation-results-v2.md` | DONE |
-| Честный итог evaluation | `bot-v2`: 20/25 exact, 17/25 content PASS, 8 FAIL, 2 technical failures, security 2/2 | `docs/evaluation-results-v2.md` | DONE |
+| Runtime prompt отдельными файлами | `bot-v3`, strict JSON Schema, неизменяемые `bot-v1` и `bot-v2` | `prompts/bot/` | DONE |
+| Прогон 25 обращений | Оригинальный dataset, отдельные v1/v2/v3 JSON и Markdown, ручная оценка и технические сбои | `docs/requests.md`, `docs/evaluation-results-v3.md` | DONE |
+| Честный итог evaluation | `bot-v3`: 21/25 exact, 19/25 content PASS, 6 FAIL, 1 technical failure; №23–25 помечены как изменение product semantics, routing dataset — 8/10 | `docs/evaluation-results-v3.md`, `docs/routing-evaluation-v3.md` | DONE |
 | Архитектура, допущения и ERD | Границы, trade-offs, актуальные entities/relations/constraints/indexes | `docs/architecture.md`, `docs/assumptions.md`, `docs/database-schema.md` | DONE |
 | First-run README | Environment, APP_KEY, secrets, operator, panel, bot, Groq, tests, evaluation, stop | `README.md`, `.env.example` | DONE |
 | Development prompts | Реальные сохранённые постановки и индекс; runtime prompts отделены | `AGENTS.md`, `docs/agent-prompts/` | DONE |

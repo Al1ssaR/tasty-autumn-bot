@@ -12,7 +12,7 @@ final class SupportStatistics
     {
         $botResolved = BotDecision::query()
             ->join('messages as response', 'response.bot_decision_id', '=', 'bot_decisions.id')
-            ->where('bot_decisions.action', 'answer')
+            ->whereIn('bot_decisions.action', ['answer', 'respond_static'])
             ->where('bot_decisions.technical_outcome', 'valid')
             ->whereIn('response.author_type', ['bot', 'system'])
             ->where('response.delivery_status', 'sent')

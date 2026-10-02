@@ -161,6 +161,10 @@ class OperatorPanelTest extends TestCase
             ->assertSessionHas('success');
 
         $this->assertTrue($ticket->fresh()->first_operator_response_at->equalTo($firstResponse));
+        $this->assertSame(
+            'Оператор: Дополнительный ответ.',
+            $this->telegram->sentMessages[1]['text'],
+        );
     }
 
     public function test_delivery_failure_keeps_operator_message_and_ticket_open(): void
@@ -349,6 +353,16 @@ class OperatorPanelTest extends TestCase
         $this->assertSame(600.0, app(SupportStatistics::class)->allTime()['average_operator_response_seconds']);
     }
 
+    public function test_only_successfully_delivered_answer_and_static_response_count_as_bot_resolved(): void
+    {
+        $this->botAnswer('sent');
+        $this->botAnswer('failed');
+        $this->staticResponse('sent');
+        $this->staticResponse('failed');
+
+        $this->assertSame(2, app(SupportStatistics::class)->allTime()['bot_resolved']);
+    }
+
     private function operator(bool $active = true, string $password = 'password'): User
     {
         return User::query()->create([
@@ -446,6 +460,40 @@ class OperatorPanelTest extends TestCase
             'bot_decision_id' => $decision->id,
             'author_type' => 'bot',
             'body' => 'Ответ по правилам',
+            'telegram_update_id' => null,
+            'telegram_message_id' => $deliveryStatus === 'sent' ? $this->nextIdentifier() : null,
+            'delivery_status' => $deliveryStatus,
+            'telegram_sent_at' => $deliveryStatus === 'sent' ? now() : null,
+            'delivery_error' => $deliveryStatus === 'failed' ? 'Temporary failure.' : null,
+            'delivery_attempt_count' => 1,
+        ]);
+    }
+
+    private function staticResponse(string $deliveryStatus): void
+    {
+        $participant = TelegramParticipant::query()->create([
+            'telegram_chat_id' => $this->nextIdentifier(),
+        ]);
+        $incoming = $this->participantMessage($participant, 'Привет');
+        $decision = BotDecision::query()->create([
+            'incoming_message_id' => $incoming->id,
+            'action' => 'respond_static',
+            'business_reason' => 'out_of_scope',
+            'technical_outcome' => 'valid',
+            'rule_references' => [],
+            'provider' => 'test',
+            'model' => 'test',
+            'prompt_version' => 'bot-v3',
+            'rules_hash' => str_repeat('a', 64),
+            'decided_at' => now(),
+        ]);
+        Message::query()->create([
+            'telegram_participant_id' => $participant->id,
+            'support_ticket_id' => null,
+            'operator_user_id' => null,
+            'bot_decision_id' => $decision->id,
+            'author_type' => 'system',
+            'body' => config('bot.out_of_scope_response'),
             'telegram_update_id' => null,
             'telegram_message_id' => $deliveryStatus === 'sent' ? $this->nextIdentifier() : null,
             'delivery_status' => $deliveryStatus,

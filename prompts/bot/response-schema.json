@@ -10,7 +10,7 @@
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["answer", "escalate"]
+            "enum": ["answer", "escalate", "respond_static"]
         },
         "reason": {
             "type": "string",
@@ -19,7 +19,8 @@
                 "participant_data_required",
                 "missing_rule",
                 "insufficient_context",
-                "unsafe_request"
+                "unsafe_request",
+                "out_of_scope"
             ]
         },
         "answer": {

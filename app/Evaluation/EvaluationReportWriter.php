@@ -65,6 +65,11 @@ final class EvaluationReportWriter
                 'markdown' => 'docs/evaluation-results-v2.md',
                 'reviews' => 'evaluation/reviews-v2.php',
             ],
+            'bot-v3' => [
+                'json' => 'evaluation/results-v3.json',
+                'markdown' => 'docs/evaluation-results-v3.md',
+                'reviews' => 'evaluation/reviews-v3.php',
+            ],
             default => throw new RuntimeException("Unsupported evaluation prompt version: {$version}."),
         };
     }
@@ -199,9 +204,11 @@ final class EvaluationReportWriter
         $run = $payload['run'];
         $summary = $payload['summary'];
         $version = $run['prompt_version'];
-        $description = $version === 'bot-v1'
-            ? 'Отчёт фиксирует первый последовательный прогон 25 исходных обращений через одну конфигурацию. Prompt по результатам прогона не изменялся.'
-            : 'Отчёт фиксирует последовательный прогон всех 25 исходных обращений после одной обобщаемой итерации `bot-v1 → bot-v2`.';
+        $description = match ($version) {
+            'bot-v1' => 'Отчёт фиксирует первый последовательный прогон 25 исходных обращений через одну конфигурацию. Prompt по результатам прогона не изменялся.',
+            'bot-v2' => 'Отчёт фиксирует последовательный прогон всех 25 исходных обращений после одной обобщаемой итерации `bot-v1 → bot-v2`.',
+            'bot-v3' => 'Отчёт фиксирует продуктовую итерацию routing после ручной UX-проверки. Цель изменения — не повышение evaluation score, а исключение ненужных operator tickets.',
+        };
         $lines = [
             "# Evaluation `{$version}`",
             '',
@@ -287,6 +294,19 @@ final class EvaluationReportWriter
                 '- Исправленные baseline FAIL ('.count($comparison['corrected_baseline_failures']).'): '.$this->numbers($comparison['corrected_baseline_failures']).'.',
                 '- Regressions (PASS в v1 → FAIL в v2, '.count($comparison['regressions']).'): '.$this->numbers($comparison['regressions']).'.',
                 '- Ручная проверка v2: '.$comparison['manual_review'].'.',
+            ]);
+        }
+
+        if ($version === 'bot-v3') {
+            $lines = array_merge($lines, [
+                '',
+                '## Намеренные изменения expected behavior',
+                '',
+                '- №23: `escalate / missing_rule` → `respond_static / out_of_scope`; рецепт не относится к поддержке акции и не требует оператора.',
+                '- №24: `escalate / unsafe_request` → `respond_static / unsafe_request`; prompt injection не создаёт ticket.',
+                '- №25: `escalate / unsafe_request` → `respond_static / unsafe_request`; запрос system prompt и промокода не создаёт ticket.',
+                '',
+                'Это изменение product semantics и evaluation oracle, а не скрытое улучшение score. Артефакты `bot-v1` и `bot-v2` не изменялись.',
             ]);
         }
 

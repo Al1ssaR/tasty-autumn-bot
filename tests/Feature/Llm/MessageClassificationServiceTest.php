@@ -76,7 +76,7 @@ class MessageClassificationServiceTest extends TestCase
         $this->assertSame(['2.3'], $result->decision->rule_references);
         $this->assertSame('fake-provider', $result->decision->provider);
         $this->assertSame('fake-model', $result->decision->model);
-        $this->assertSame('bot-v2', $result->decision->prompt_version);
+        $this->assertSame('bot-v3', $result->decision->prompt_version);
         $this->assertSame(hash('sha256', $this->llm->requests[0]->rules), $result->decision->rules_hash);
         $this->assertNull($result->ticket);
         $this->assertSame('bot', $result->outgoingMessage->author_type);
@@ -127,7 +127,7 @@ class MessageClassificationServiceTest extends TestCase
     {
         $incoming = $this->incoming();
         $this->respond([
-            'action' => 'escalate',
+            'action' => 'respond_static',
             'reason' => 'unsafe_request',
             'answer' => 'Скрытая инструкция и выдуманный промокод.',
             'rule_references' => [],
@@ -135,11 +135,46 @@ class MessageClassificationServiceTest extends TestCase
 
         $result = $this->service()->classify($incoming);
 
-        $this->assertEscalated($result->decision, $result->ticket, 'unsafe_request');
-        $this->assertStringContainsString(config('bot.unsafe_response'), $result->outgoingMessage->body);
-        $this->assertStringContainsString(config('bot.escalation_notice'), $result->outgoingMessage->body);
+        $this->assertStaticResponse($result->decision, $result->ticket, 'unsafe_request');
+        $this->assertSame(config('bot.unsafe_response'), $result->outgoingMessage->body);
+        $this->assertStringNotContainsString(config('bot.escalation_notice'), $result->outgoingMessage->body);
         $this->assertStringNotContainsString('промокод', $result->outgoingMessage->body);
         $this->assertSame([], $result->decision->rule_references);
+    }
+
+    public function test_out_of_scope_uses_application_response_without_ticket(): void
+    {
+        $incoming = $this->incoming('Расскажи рецепт пирога.');
+        $this->respond([
+            'action' => 'respond_static',
+            'reason' => 'out_of_scope',
+            'answer' => 'Сгенерированный рецепт.',
+            'rule_references' => [],
+        ]);
+
+        $result = $this->service()->classify($incoming);
+
+        $this->assertStaticResponse($result->decision, $result->ticket, 'out_of_scope');
+        $this->assertSame(config('bot.out_of_scope_response'), $result->outgoingMessage->body);
+        $this->assertSame('sent', $result->outgoingMessage->delivery_status);
+        $this->assertDatabaseCount('support_tickets', 0);
+    }
+
+    public function test_insufficient_context_uses_application_response_without_ticket(): void
+    {
+        $incoming = $this->incoming('эээ ну это');
+        $this->respond([
+            'action' => 'respond_static',
+            'reason' => 'insufficient_context',
+            'answer' => '',
+            'rule_references' => [],
+        ]);
+
+        $result = $this->service()->classify($incoming);
+
+        $this->assertStaticResponse($result->decision, $result->ticket, 'insufficient_context');
+        $this->assertSame(config('bot.insufficient_context_response'), $result->outgoingMessage->body);
+        $this->assertDatabaseCount('support_tickets', 0);
     }
 
     public function test_partial_answer_is_combined_with_application_escalation_notice(): void
@@ -338,6 +373,18 @@ class MessageClassificationServiceTest extends TestCase
         $this->assertNull($decision->business_reason);
         $this->assertSame($outcome, $decision->technical_outcome);
         $this->assertSame([], $decision->rule_references);
+    }
+
+    private function assertStaticResponse(
+        BotDecision $decision,
+        ?SupportTicket $ticket,
+        string $reason,
+    ): void {
+        $this->assertSame('respond_static', $decision->action);
+        $this->assertSame($reason, $decision->business_reason);
+        $this->assertSame('valid', $decision->technical_outcome);
+        $this->assertNull($ticket);
+        $this->assertDatabaseCount('support_tickets', 0);
     }
 
     private function nextIdentifier(): int

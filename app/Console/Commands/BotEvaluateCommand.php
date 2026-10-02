@@ -93,7 +93,10 @@ final class BotEvaluateCommand extends Command
     /** @return array<int, array{action: string, reason: string}> */
     private function expected(): array
     {
-        $mapping = require base_path('evaluation/expected.php');
+        $path = config('bot.prompt_version') === 'bot-v3'
+            ? 'evaluation/expected-v3.php'
+            : 'evaluation/expected.php';
+        $mapping = require base_path($path);
 
         if (! is_array($mapping) || array_keys($mapping) !== range(1, 25)) {
             throw new RuntimeException('Evaluation oracle must contain cases 1 through 25.');

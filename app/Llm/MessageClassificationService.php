@@ -226,12 +226,17 @@ final class MessageClassificationService implements IncomingMessageClassifier
             return $decision->answer;
         }
 
-        $notice = trim((string) config('bot.escalation_notice'));
-
         if ($outcome === TechnicalOutcome::Valid
-            && $decision?->reason === DecisionReason::UnsafeRequest) {
-            return trim((string) config('bot.unsafe_response'))."\n\n{$notice}";
+            && $decision?->action === DecisionAction::RespondStatic) {
+            return match ($decision->reason) {
+                DecisionReason::InsufficientContext => trim((string) config('bot.insufficient_context_response')),
+                DecisionReason::OutOfScope => trim((string) config('bot.out_of_scope_response')),
+                DecisionReason::UnsafeRequest => trim((string) config('bot.unsafe_response')),
+                default => throw new \LogicException('Unsupported static response reason.'),
+            };
         }
+
+        $notice = trim((string) config('bot.escalation_notice'));
 
         if ($outcome === TechnicalOutcome::Valid && $decision?->answer !== '') {
             return $decision->answer."\n\n{$notice}";
